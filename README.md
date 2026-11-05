@@ -246,8 +246,75 @@ docker compose down && docker compose up -d
 
 ---
 
-## 十、参考资源
+## 十、多语言 (i18n) 支持标准
 
+所有 yyzq-cf 项目 **默认支持中文和英文**，其他语言可按需扩展。i18n 是项目级标准，不是可选项。
+
+### 核心原则
+1. **默认双语** — 每个项目上线时必须同时支持中文(zh)和英文(en)
+2. **可扩展** — 新增语言只需加翻译文件，不改代码逻辑
+3. **UI 文案翻译，业务数据不翻译** — 引擎名(BCut/Groq)、ASR结果、用户输入等保持原文
+4. **前后端协同** — 后端 Jinja2 `t()` filter 渲染静态文本，前端 JS `i18n.t()` 处理动态内容
+5. **语言记忆** — session + cookie 双层持久化，用户切换后刷新/重开都保持
+
+### 实现架构
+
+| 层 | 职责 | 技术 |
+|----|------|------|
+| 后端 | 翻译字典 + `get_locale()` 语言检测 + `t()` 翻译函数 | Flask `session`/`g` + Jinja2 globals |
+| 前端模板 | 静态文本用 `{{ t('key') }}` | Jinja2 filter |
+| 前端JS | 动态内容用 `i18n.t('key', params)` | `static/js/i18n.js` |
+| 语言切换 | 导航栏语言按钮 → POST `/api/language` | fetch + reload |
+
+### 文件结构（项目内新增）
+```
+project-name/
+├── i18n/
+│   ├── __init__.py          # 核心：get_locale() + t() + init_i18n()
+│   ├── translations.py      # 翻译字典（zh + en，初期推荐）
+│   └── locales/             # JSON 文件（3种+语言时迁移用）
+│       ├── zh.json
+│       ├── en.json
+│       └── ja.json          # 新增语言只需加文件
+├── static/js/i18n.js        # 前端翻译模块
+└── templates/base.html      # 包含语言切换器
+```
+
+### 语言检测优先级
+```
+1. session['language']       ← 用户点语言切换器（最高优先级）
+2. cookie['language']        ← session过期后仍记住（1年）
+3. Accept-Language header    ← 首次访问自动检测浏览器语言
+4. DEFAULT_LANGUAGE = 'zh'   ← 兜底
+```
+
+### 翻译 Key 命名规范
+- 格式：`namespace.key`（全小写，点分层级）
+- 命名空间：`app` / `nav` / `common` / `settings` / `engine` / `upload`
+- 变量占位：`{name}` 格式，如 `t('settings.api_key_hint', name='BCut')`
+- 所有语言的 key 必须一致，缺失时 fallback 英文 → key 本身
+
+### 前端语言切换器
+- 导航栏放语言按钮组（和设置按钮、GitHub 图标并列）
+- 当前语言高亮（`.active` CSS class）
+- 点击 → `POST /api/language` → 后端 `set_language()` + 设 cookie → 前端 `reload()`
+- CSS 圆角按钮组，hover 有过渡动画，符合 UI 规范第3条
+
+### 新增语言（3步）
+```
+1. i18n/__init__.py 的 SUPPORTED_LANGUAGES 加 'ja': '日本語'
+2. i18n/translations.py 复制 'en' 块改为 'ja' 块（翻译文本）
+3. static/js/i18n.js 的 I18N_TRANSLATIONS 加对应 'ja' 块
+```
+完成。语言切换器自动出现新语言按钮，无需改其他代码。
+
+> **完整实现模板**（后端 Python + 前端 JS + HTML 模板 + CSS + 测试代码）见 `references/i18n-multilingual-support.md`
+
+---
+
+## 十一、参考资源
+
+- `references/i18n-multilingual-support.md` — **多语言 i18n 完整实现**：Flask 后端 get_locale/t() + Jinja2 filter + 前端 JS i18n.t() + 语言切换器 + 翻译文件结构 + 新增语言步骤 + 测试方法
 - **docker-packaging skill** — Docker 打包的完整细节（CI模板、多架构、权限修复、Docker Hub API等），详见该 skill
 - **用户偏好**（记忆）：
   - 遇到客户端兼容性问题优先改服务端配置/代码，不让用户改客户端
